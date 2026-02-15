@@ -3,295 +3,176 @@
 <head>
   <title>Secure Pruning Chat</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
   <style>
-    body {
-      margin: 0;
-      font-family: Arial;
-      background: #0f0f0f;
-      color: white;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
-
-    .container {
-      width: 95%;
-      max-width: 420px;
-      background: #1a1a1a;
-      padding: 15px;
-      border-radius: 12px;
-      box-shadow: 0 0 20px rgba(128,0,255,0.3);
-    }
-
-    h3 {
-      text-align: center;
-    }
-
-    input, button {
-      width: 100%;
-      padding: 10px;
-      margin: 6px 0;
-      border-radius: 6px;
-      border: none;
-      font-size: 14px;
-    }
-
-    button {
-      background: #7c3aed;
-      color: white;
-      cursor: pointer;
-    }
-
-    #chat {
-      height: 300px;
-      overflow-y: auto;
-      background: #111;
-      padding: 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-    }
-
-    .message-box {
-      background: #222;
-      padding: 8px;
-      border-radius: 6px;
-      margin-bottom: 6px;
-      word-wrap: break-word;
-    }
-
-    .username {
-      font-weight: bold;
-      color: #c084fc;
-      font-size: 13px;
-    }
-
-    #countdown {
-      font-size: 12px;
-      text-align: right;
-      color: #aaa;
-      margin-bottom: 5px;
-    }
-
-    @media (max-width: 480px) {
-      body {
-        align-items: flex-start;
-        padding-top: 20px;
-      }
-      .container {
-        width: 92%;
-      }
-    }
+    body { margin: 0; font-family: 'Segoe UI', Arial; background: #0f0f0f; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    .container { width: 95%; max-width: 420px; background: #1a1a1a; padding: 20px; border-radius: 12px; box-shadow: 0 0 25px rgba(124, 58, 237, 0.2); }
+    h3 { text-align: center; margin-top: 0; color: #7c3aed; }
+    input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #333; font-size: 14px; box-sizing: border-box; }
+    input { background: #111; color: white; }
+    button { background: #7c3aed; color: white; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
+    button:hover { background: #6d28d9; }
+    #chat { height: 350px; overflow-y: auto; background: #0a0a0a; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #222; }
+    .message-box { background: #1e1e1e; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #7c3aed; }
+    .username { font-weight: bold; color: #a78bfa; font-size: 12px; margin-bottom: 4px; }
+    #countdown { font-size: 11px; text-align: right; color: #666; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+    .cf-turnstile { margin: 10px 0; display: flex; justify-content: center; }
   </style>
 </head>
 <body>
 
 <div class="container">
-
-  <div id="auth">
-    <h3>Login / Register</h3>
-    <input id="email" placeholder="Email">
+  <div id="auth-ui">
+    <h3>Join the Chat</h3>
+    <input id="email" type="email" placeholder="Email">
     <input id="password" type="password" placeholder="Password">
-    <input id="username" placeholder="Username">
-
-    <div class="cf-turnstile"
-         data-sitekey="0x4AAAAAACbG2MvmWzVj-e3q">
-    </div>
-
-    <button onclick="register()">Register</button>
-    <button onclick="login()">Login</button>
+    <input id="username" type="text" placeholder="Display Name">
+    <div class="cf-turnstile" data-sitekey="0x4AAAAAACbG2MvmWzVj-e3q"></div>
+    <button onclick="handleRegister()">Register</button>
+    <button onclick="handleLogin()" style="background: transparent; color: #aaa;">Or Login Existing</button>
   </div>
 
   <div id="chat-ui" style="display:none;">
-    <div id="countdown"></div>
+    <div id="countdown">Syncing...</div>
     <div id="chat"></div>
-    <input id="message" placeholder="Type message...">
-    <button onclick="sendMessage()">Send</button>
+    <div style="display: flex; gap: 5px;">
+        <input id="message-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()" style="width: 80px;">Send</button>
+    </div>
+    <button onclick="supabase.auth.signOut()" style="background: none; color: #555; font-size: 11px; margin-top: 10px;">Logout</button>
   </div>
-
 </div>
 
 <script>
-const supabase = window.supabase.createClient(
-  "https://bxzqguljapxvthiishdx.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4enFndWxqYXB4dnRoaWlzaGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNjQ1NjMsImV4cCI6MjA4Njc0MDU2M30.SeyOuJcyoLmsRAoDriTFcZX5UuBSZrcMw1CZd7SrhaU"
-);
+const SUPABASE_URL = "https://bxzqguljapxvthiishdx.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4enFndWxqYXB4dnRoaWlzaGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNjQ1NjMsImV4cCI6MjA4Njc0MDU2M30.SeyOuJcyoLmsRAoDriTFcZX5UuBSZrcMw1CZd7SrhaU";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let currentUser;
-let currentUsername;
+let currentUser = null;
+let currentUsername = "Anonymous";
 let pruneSeconds = 20 * 60;
 
-// Countdown timer
-function startCountdown() {
-  setInterval(() => {
-    pruneSeconds--;
-    if (pruneSeconds <= 0) {
-      pruneSeconds = 20 * 60;
-      loadMessages();
-    }
-    const m = Math.floor(pruneSeconds / 60);
-    const s = pruneSeconds % 60;
-    document.getElementById("countdown").innerText =
-      "Messages reset in: " + m + "m " + s + "s";
-  }, 1000);
+// 1. Auth State Listener (Handles auto-login)
+supabase.auth.onAuthStateChange((event, session) => {
+  if (session) {
+    currentUser = session.user;
+    currentUsername = currentUser.user_metadata.display_name || "User";
+    showChatUI();
+  } else {
+    document.getElementById("auth-ui").style.display = "block";
+    document.getElementById("chat-ui").style.display = "none";
+  }
+});
+
+// 2. Turnstile Check
+function getTurnstileToken() {
+  const response = document.querySelector('[name="cf-turnstile-response"]');
+  return response ? response.value : null;
 }
 
-// Turnstile verification
-async function verifyTurnstile() {
-  const tokenInput = document.querySelector('[name="cf-turnstile-response"]');
-  if (!tokenInput) return false;
-  const token = tokenInput.value;
-  if (!token) return false;
-
-  try {
-    const res = await fetch("/api/verify-turnstile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token })
-    });
-    const data = await res.json();
-    return data.success;
-  } catch (err) {
-    alert("Captcha verification failed");
-    return false;
-  }
-}
-
-// Register
-async function register() {
-  const emailInput = document.getElementById("email");
-  const passwordInput = document.getElementById("password");
-  const usernameInput = document.getElementById("username");
-
-  if (!usernameInput.value.trim()) {
-    return alert("Please enter a username");
-  }
-
-  if (!(await verifyTurnstile())) return alert("Captcha failed");
+// 3. Register
+async function handleRegister() {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+  const userDisp = document.getElementById("username").value;
+  
+  if (!userDisp) return alert("Please choose a display name");
+  if (!getTurnstileToken()) return alert("Please complete the captcha");
 
   const { data, error } = await supabase.auth.signUp({
-    email: emailInput.value,
-    password: passwordInput.value
-  });
-
-  if (error) return alert("Registration failed: " + error.message);
-
-  alert("Registration successful!");
-
-  // Automatically log in after successful registration
-  await loginAfterRegister(emailInput.value, passwordInput.value, usernameInput.value);
-}
-
-// Auto-login after registration
-async function loginAfterRegister(email, password, username) {
-  const { data, error } = await supabase.auth.signInWithPassword({
     email,
-    password
+    password,
+    options: { data: { display_name: userDisp } }
   });
 
-  if (error) return alert("Login failed after registration: " + error.message);
-
-  currentUser = data.user;
-  currentUsername = username;
-
-  showChatUI();
-  alert("Logged in! Welcome, " + username);
+  if (error) alert(error.message);
+  else alert("Registration successful! Check your email for a confirmation link.");
 }
 
-// Login
-async function login() {
-  const emailInput = document.getElementById("email");
-  const passwordInput = document.getElementById("password");
-  const usernameInput = document.getElementById("username");
+// 4. Login
+async function handleLogin() {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
 
-  if (!(await verifyTurnstile())) return alert("Captcha failed");
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: emailInput.value,
-    password: passwordInput.value
-  });
-
-  if (error) return alert("Login failed: " + error.message);
-
-  currentUser = data.user;
-  currentUsername = usernameInput.value || "User";
-
-  showChatUI();
-  alert("Logged in! Welcome, " + currentUsername);
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) alert(error.message);
 }
 
-// Show chat UI
+// 5. Chat UI Logic
 function showChatUI() {
-  document.getElementById("auth").style.display = "none";
+  document.getElementById("auth-ui").style.display = "none";
   document.getElementById("chat-ui").style.display = "block";
-
+  
   loadMessages();
-  subscribeMessages();
-  startCountdown();
-}
-
-// Send chat message
-async function sendMessage() {
-  const messageInput = document.getElementById("message");
-
-  if (!messageInput.value.trim()) return;
-
-  try {
-    await supabase.from("messages").insert({
-      user_id: currentUser.id,
-      username: currentUsername,
-      content: messageInput.value.trim()
-    });
-    messageInput.value = "";
-  } catch (err) {
-    alert("Failed to send message: " + err.message);
+  setupRealtime();
+  
+  // Start timer once
+  if (!window.timerActive) {
+    setInterval(updateTimer, 1000);
+    window.timerActive = true;
   }
 }
 
-// Load chat messages
 async function loadMessages() {
-  const chatDiv = document.getElementById("chat");
-  try {
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .order("created_at", { ascending: true });
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: true })
+    .limit(50);
 
-    if (error) throw error;
-
+  if (error) console.error("Error loading:", error);
+  else {
+    const chatDiv = document.getElementById("chat");
     chatDiv.innerHTML = "";
-    data.forEach(addMessage);
-  } catch (err) {
-    alert("Failed to load messages: " + err.message);
+    data.forEach(renderMessage);
   }
 }
 
-// Display a single message
-function addMessage(msg) {
+function renderMessage(msg) {
   const chatDiv = document.getElementById("chat");
   const div = document.createElement("div");
   div.className = "message-box";
-  div.innerHTML = `<div class="username">${msg.username}</div>${msg.content}`;
+  div.innerHTML = `<div class="username">${msg.username}</div><div>${msg.content}</div>`;
   chatDiv.appendChild(div);
   chatDiv.scrollTop = chatDiv.scrollHeight;
 }
 
-// Subscribe to new messages
-function subscribeMessages() {
+async function sendMessage() {
+  const input = document.getElementById("message-input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  const { error } = await supabase.from("messages").insert({
+    content: text,
+    username: currentUsername,
+    user_id: currentUser.id
+  });
+
+  if (error) alert("Could not send: " + error.message);
+  input.value = "";
+}
+
+function setupRealtime() {
   supabase
-    .channel("messages")
-    .on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages" },
-      payload => addMessage(payload.new)
-    )
+    .channel('room1')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      renderMessage(payload.new);
+    })
     .subscribe();
 }
-</script>
 
+function updateTimer() {
+  pruneSeconds--;
+  if (pruneSeconds <= 0) {
+    pruneSeconds = 20 * 60;
+    loadMessages(); // Refresh UI on "prune"
+  }
+  const m = Math.floor(pruneSeconds / 60);
+  const s = pruneSeconds % 60;
+  document.getElementById("countdown").innerText = `Pruning in: ${m}m ${s}s`;
+}
+</script>
 </body>
 </html>
