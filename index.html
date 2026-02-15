@@ -122,6 +122,7 @@ const supabase = window.supabase.createClient(
 );
 
 let currentUser;
+let currentUsername;
 let pruneSeconds = 20 * 60;
 
 // Countdown timer
@@ -146,20 +147,29 @@ async function verifyTurnstile() {
   const token = tokenInput.value;
   if (!token) return false;
 
-  const res = await fetch("/api/verify-turnstile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token })
-  });
-
-  const data = await res.json();
-  return data.success;
+  try {
+    const res = await fetch("/api/verify-turnstile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const data = await res.json();
+    return data.success;
+  } catch (err) {
+    alert("Captcha verification failed");
+    return false;
+  }
 }
 
 // Register
 async function register() {
   const emailInput = document.getElementById("email");
   const passwordInput = document.getElementById("password");
+  const usernameInput = document.getElementById("username");
+
+  if (!usernameInput.value.trim()) {
+    return alert("Please enter a username");
+  }
 
   if (!(await verifyTurnstile())) return alert("Captcha failed");
 
@@ -168,8 +178,28 @@ async function register() {
     password: passwordInput.value
   });
 
-  if (error) alert(error.message);
-  else alert("Registered! Please login now.");
+  if (error) return alert("Registration failed: " + error.message);
+
+  alert("Registration successful!");
+
+  // Automatically log in after successful registration
+  await loginAfterRegister(emailInput.value, passwordInput.value, usernameInput.value);
+}
+
+// Auto-login after registration
+async function loginAfterRegister(email, password, username) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) return alert("Login failed after registration: " + error.message);
+
+  currentUser = data.user;
+  currentUsername = username;
+
+  showChatUI();
+  alert("Logged in! Welcome, " + username);
 }
 
 // Login
@@ -185,10 +215,17 @@ async function login() {
     password: passwordInput.value
   });
 
-  if (error) return alert(error.message);
+  if (error) return alert("Login failed: " + error.message);
 
   currentUser = data.user;
+  currentUsername = usernameInput.value || "User";
 
+  showChatUI();
+  alert("Logged in! Welcome, " + currentUsername);
+}
+
+// Show chat UI
+function showChatUI() {
   document.getElementById("auth").style.display = "none";
   document.getElementById("chat-ui").style.display = "block";
 
@@ -200,29 +237,37 @@ async function login() {
 // Send chat message
 async function sendMessage() {
   const messageInput = document.getElementById("message");
-  const usernameInput = document.getElementById("username");
 
   if (!messageInput.value.trim()) return;
 
-  await supabase.from("messages").insert({
-    user_id: currentUser.id,
-    username: usernameInput.value || "User",
-    content: messageInput.value.trim()
-  });
-
-  messageInput.value = "";
+  try {
+    await supabase.from("messages").insert({
+      user_id: currentUser.id,
+      username: currentUsername,
+      content: messageInput.value.trim()
+    });
+    messageInput.value = "";
+  } catch (err) {
+    alert("Failed to send message: " + err.message);
+  }
 }
 
 // Load chat messages
 async function loadMessages() {
   const chatDiv = document.getElementById("chat");
-  const { data } = await supabase
-    .from("messages")
-    .select("*")
-    .order("created_at", { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .order("created_at", { ascending: true });
 
-  chatDiv.innerHTML = "";
-  data.forEach(addMessage);
+    if (error) throw error;
+
+    chatDiv.innerHTML = "";
+    data.forEach(addMessage);
+  } catch (err) {
+    alert("Failed to load messages: " + err.message);
+  }
 }
 
 // Display a single message
