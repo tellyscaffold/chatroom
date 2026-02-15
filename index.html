@@ -124,27 +124,27 @@ const supabase = window.supabase.createClient(
 let currentUser;
 let pruneSeconds = 20 * 60;
 
+// Countdown timer
 function startCountdown() {
   setInterval(() => {
     pruneSeconds--;
-
     if (pruneSeconds <= 0) {
       pruneSeconds = 20 * 60;
       loadMessages();
     }
-
     const m = Math.floor(pruneSeconds / 60);
     const s = pruneSeconds % 60;
-
     document.getElementById("countdown").innerText =
       "Messages reset in: " + m + "m " + s + "s";
   }, 1000);
 }
 
+// Turnstile verification
 async function verifyTurnstile() {
-  const token = document.querySelector(
-    '[name="cf-turnstile-response"]'
-  ).value;
+  const tokenInput = document.querySelector('[name="cf-turnstile-response"]');
+  if (!tokenInput) return false;
+  const token = tokenInput.value;
+  if (!token) return false;
 
   const res = await fetch("/api/verify-turnstile", {
     method: "POST",
@@ -156,28 +156,34 @@ async function verifyTurnstile() {
   return data.success;
 }
 
+// Register
 async function register() {
-  if (!(await verifyTurnstile()))
-    return alert("Captcha failed");
+  const emailInput = document.getElementById("email");
+  const passwordInput = document.getElementById("password");
 
-  const { error } = await supabase.auth.signUp({
-    email: email.value,
-    password: password.value
+  if (!(await verifyTurnstile())) return alert("Captcha failed");
+
+  const { data, error } = await supabase.auth.signUp({
+    email: emailInput.value,
+    password: passwordInput.value
   });
 
   if (error) alert(error.message);
-  else alert("Registered. Now login.");
+  else alert("Registered! Please login now.");
 }
 
+// Login
 async function login() {
-  if (!(await verifyTurnstile()))
-    return alert("Captcha failed");
+  const emailInput = document.getElementById("email");
+  const passwordInput = document.getElementById("password");
+  const usernameInput = document.getElementById("username");
 
-  const { data, error } =
-    await supabase.auth.signInWithPassword({
-      email: email.value,
-      password: password.value
-    });
+  if (!(await verifyTurnstile())) return alert("Captcha failed");
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: emailInput.value,
+    password: passwordInput.value
+  });
 
   if (error) return alert(error.message);
 
@@ -191,37 +197,45 @@ async function login() {
   startCountdown();
 }
 
+// Send chat message
 async function sendMessage() {
-  if (!message.value.trim()) return;
+  const messageInput = document.getElementById("message");
+  const usernameInput = document.getElementById("username");
+
+  if (!messageInput.value.trim()) return;
 
   await supabase.from("messages").insert({
     user_id: currentUser.id,
-    username: username.value || "User",
-    content: message.value.trim()
+    username: usernameInput.value || "User",
+    content: messageInput.value.trim()
   });
 
-  message.value = "";
+  messageInput.value = "";
 }
 
+// Load chat messages
 async function loadMessages() {
+  const chatDiv = document.getElementById("chat");
   const { data } = await supabase
     .from("messages")
     .select("*")
     .order("created_at", { ascending: true });
 
-  chat.innerHTML = "";
+  chatDiv.innerHTML = "";
   data.forEach(addMessage);
 }
 
+// Display a single message
 function addMessage(msg) {
+  const chatDiv = document.getElementById("chat");
   const div = document.createElement("div");
   div.className = "message-box";
-  div.innerHTML =
-    `<div class="username">${msg.username}</div>${msg.content}`;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+  div.innerHTML = `<div class="username">${msg.username}</div>${msg.content}`;
+  chatDiv.appendChild(div);
+  chatDiv.scrollTop = chatDiv.scrollHeight;
 }
 
+// Subscribe to new messages
 function subscribeMessages() {
   supabase
     .channel("messages")
