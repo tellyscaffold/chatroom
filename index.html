@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Secure Pruning Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      background: #0f0f0f;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      width: 95%;
+      max-width: 420px;
+      background: #1a1a1a;
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(128,0,255,0.3);
+    }
+
+    h3 {
+      text-align: center;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin: 6px 0;
+      border-radius: 6px;
+      border: none;
+      font-size: 14px;
+    }
+
+    button {
+      background: #7c3aed;
+      color: white;
+      cursor: pointer;
+    }
+
+    #chat {
+      height: 300px;
+      overflow-y: auto;
+      background: #111;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+
+    .message-box {
+      background: #222;
+      padding: 8px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      word-wrap: break-word;
+    }
+
+    .username {
+      font-weight: bold;
+      color: #c084fc;
+      font-size: 13px;
+    }
+
+    #countdown {
+      font-size: 12px;
+      text-align: right;
+      color: #aaa;
+      margin-bottom: 5px;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        align-items: flex-start;
+        padding-top: 20px;
+      }
+      .container {
+        width: 92%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div id="auth">
+    <h3>Login / Register</h3>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+    <input id="username" placeholder="Username">
+
+    <div class="cf-turnstile"
+         data-sitekey="0x4AAAAAACbG2MvmWzVj-e3q">
+    </div>
+
+    <button onclick="register()">Register</button>
+    <button onclick="login()">Login</button>
+  </div>
+
+  <div id="chat-ui" style="display:none;">
+    <div id="countdown"></div>
+    <div id="chat"></div>
+    <input id="message" placeholder="Type message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+</div>
+
+<script>
+const supabase = window.supabase.createClient(
+  "https://bxzqguljapxvthiishdx.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4enFndWxqYXB4dnRoaWlzaGR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNjQ1NjMsImV4cCI6MjA4Njc0MDU2M30.SeyOuJcyoLmsRAoDriTFcZX5UuBSZrcMw1CZd7SrhaU"
+);
+
+let currentUser;
+let pruneSeconds = 20 * 60;
+
+function startCountdown() {
+  setInterval(() => {
+    pruneSeconds--;
+
+    if (pruneSeconds <= 0) {
+      pruneSeconds = 20 * 60;
+      loadMessages();
+    }
+
+    const m = Math.floor(pruneSeconds / 60);
+    const s = pruneSeconds % 60;
+
+    document.getElementById("countdown").innerText =
+      "Messages reset in: " + m + "m " + s + "s";
+  }, 1000);
+}
+
+async function verifyTurnstile() {
+  const token = document.querySelector(
+    '[name="cf-turnstile-response"]'
+  ).value;
+
+  const res = await fetch("/api/verify-turnstile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+
+  const data = await res.json();
+  return data.success;
+}
+
+async function register() {
+  if (!(await verifyTurnstile()))
+    return alert("Captcha failed");
+
+  const { error } = await supabase.auth.signUp({
+    email: email.value,
+    password: password.value
+  });
+
+  if (error) alert(error.message);
+  else alert("Registered. Now login.");
+}
+
+async function login() {
+  if (!(await verifyTurnstile()))
+    return alert("Captcha failed");
+
+  const { data, error } =
+    await supabase.auth.signInWithPassword({
+      email: email.value,
+      password: password.value
+    });
+
+  if (error) return alert(error.message);
+
+  currentUser = data.user;
+
+  document.getElementById("auth").style.display = "none";
+  document.getElementById("chat-ui").style.display = "block";
+
+  loadMessages();
+  subscribeMessages();
+  startCountdown();
+}
+
+async function sendMessage() {
+  if (!message.value.trim()) return;
+
+  await supabase.from("messages").insert({
+    user_id: currentUser.id,
+    username: username.value || "User",
+    content: message.value.trim()
+  });
+
+  message.value = "";
+}
+
+async function loadMessages() {
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  chat.innerHTML = "";
+  data.forEach(addMessage);
+}
+
+function addMessage(msg) {
+  const div = document.createElement("div");
+  div.className = "message-box";
+  div.innerHTML =
+    `<div class="username">${msg.username}</div>${msg.content}`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function subscribeMessages() {
+  supabase
+    .channel("messages")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      payload => addMessage(payload.new)
+    )
+    .subscribe();
+}
+</script>
+
+</body>
+</html>
